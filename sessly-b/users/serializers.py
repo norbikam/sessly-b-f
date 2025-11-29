@@ -9,6 +9,10 @@ from .services import create_email_verification, send_verification_email
 
 User = get_user_model()
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 class RegisterSerializer(serializers.ModelSerializer):
     email = serializers.EmailField(required=True)
@@ -18,6 +22,12 @@ class RegisterSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = ("username", "email", "first_name", "last_name", "password", "password2")
+
+    def to_internal_value(self, data):
+        logger.info(f"📥 RAW data received: {data}")
+        result = super().to_internal_value(data)
+        logger.info(f"📦 After to_internal_value: {result}")
+        return result
 
     def validate_email(self, value: str) -> str:
         if User.objects.filter(email__iexact=value).exists():
@@ -55,6 +65,54 @@ class RegisterSerializer(serializers.ModelSerializer):
             elif not user.is_active:
                 user.is_active = True
                 user.save(update_fields=["is_active"])
+
+        return user
+
+
+class UserRegisterSerializer(serializers.ModelSerializer):
+    email = serializers.EmailField(required=True)
+    password = serializers.CharField(write_only=True, required=True, style={"input_type": "password"})
+    password2 = serializers.CharField(write_only=True, required=True, style={"input_type": "password"})
+
+    class Meta:
+        model = User
+        fields = ("username", "email", "first_name", "last_name", "password", "password2")
+
+    def to_internal_value(self, data):
+        logger.info(f"📥 RAW data received: {data}")
+        result = super().to_internal_value(data)
+        logger.info(f"📦 After to_internal_value: {result}")
+        return result
+
+    def validate_email(self, value: str) -> str:
+        if User.objects.filter(email__iexact=value).exists():
+            raise serializers.ValidationError("Uzytkownik z takim adresem email juz istnieje")
+        return value
+
+    def validate(self, attrs):
+        if attrs["password"] != attrs["password2"]:
+            raise serializers.ValidationError({"password": "Hasla nie sa identyczne"})
+
+        temp_user = User(
+            username=attrs.get("username"),
+            email=attrs.get("email"),
+            first_name=attrs.get("first_name"),
+            last_name=attrs.get("last_name"),
+        )
+        validate_password(attrs["password"], user=temp_user)
+        return attrs
+
+    def create(self, validated_data):
+        # ensure the newly created user is active immediately (bypass email-activation requirement)
+        # set default so create_user receives is_active=True, and force-save after create to be safe
+        validated_data.setdefault('is_active', True)
+
+        user = User.objects.create_user(**validated_data)
+
+        # in case create_user ignores is_active, ensure it's set and persisted
+        if not user.is_active:
+            user.is_active = True
+            user.save(update_fields=['is_active'])
 
         return user
 

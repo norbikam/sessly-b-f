@@ -20,10 +20,38 @@ from .serializers import (
 User = get_user_model()
 
 
-class RegisterView(generics.CreateAPIView):
-    queryset = User.objects.all()
+class RegisterView(APIView):
     permission_classes = (AllowAny,)
-    serializer_class = RegisterSerializer
+
+    def post(self, request):
+        print('📥 Registration request data:', request.data)
+        
+        serializer = RegisterSerializer(data=request.data)
+        
+        if not serializer.is_valid():
+            print('❌ VALIDATION ERRORS:', serializer.errors)
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Stwórz użytkownika
+        user = serializer.save()
+        print(f'✅ User created: {user.username}')
+        
+        # Wygeneruj tokeny JWT
+        refresh = RefreshToken.for_user(user)
+        
+        # Zwróć dane użytkownika + tokeny
+        return Response({
+            'user': {
+                'id': user.id,
+                'username': user.username,
+                'email': user.email,
+                'first_name': user.first_name,
+                'last_name': user.last_name,
+            },
+            'access': str(refresh.access_token),
+            'refresh': str(refresh),
+        }, status=status.HTTP_201_CREATED)
+
 
 
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
@@ -102,3 +130,8 @@ class LogoutView(APIView):
             return Response({"detail": "Nie udalo sie uniewaznic tokenu"}, status=status.HTTP_400_BAD_REQUEST)
 
         return Response(status=status.HTTP_205_RESET_CONTENT)
+
+
+def login_view(request, *args, **kwargs):
+    print("📥 LOGIN RAW data:", getattr(request, 'data', None) or getattr(request, 'POST', None))
+    # dalsza obsługa (autoryzacja)

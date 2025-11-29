@@ -46,9 +46,13 @@ SECRET_KEY = get_env(
 DEBUG = get_bool_env("DJANGO_DEBUG", "True")
 ENVIRONMENT = get_env("DJANGO_ENV", "development")
 
-ALLOWED_HOSTS = get_list_env("DJANGO_ALLOWED_HOSTS")
-if DEBUG:
-    ALLOWED_HOSTS.extend(["127.0.0.1", "localhost"])
+_raw_allowed = os.getenv('DJANGO_ALLOWED_HOSTS', '')
+if _raw_allowed:
+    ALLOWED_HOSTS = [h.strip() for h in _raw_allowed.split(',') if h.strip()]
+else:
+    ALLOWED_HOSTS = ['127.0.0.1', 'localhost', '192.168.1.209']
+
+ALLOWED_HOSTS = sorted(set(ALLOWED_HOSTS))
 
 VERCEL_URL = get_env("VERCEL_URL")
 if VERCEL_URL:
