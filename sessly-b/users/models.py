@@ -35,3 +35,24 @@ class EmailVerification(models.Model):
 
     def __str__(self) -> str:
         return f"{self.user} - {self.code}"
+    
+class Favorite(models.Model):
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='favorites'
+    )
+    
+    businesses = models.ForeignKey(
+        'businesses.Business',
+
+        on_delete=models.CASCADE,
+        related_name='favorited_by'
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('user', 'businesses')
+    
+    def __str__(self):
+        return f"{self.user} polubił {self.businesses}"

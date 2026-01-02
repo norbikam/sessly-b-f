@@ -8,6 +8,8 @@ from .views import (
     RegisterView,
     ResendVerificationCodeView,
     VerifyEmailView,
+    ToggleFavoriteView,
+    UserFavoritesView
 )
 
 urlpatterns = [
@@ -19,4 +21,6 @@ urlpatterns = [
     path("logout/", LogoutView.as_view(), name="logout"),
     path("verify-email/", VerifyEmailView.as_view(), name="verify_email"),
     path("verify-email/resend/", ResendVerificationCodeView.as_view(), name="resend_verify_email"),
+    path("favorites/", UserFavoritesView.as_view(), name="auth_register"),
+    path("favorites/<int:business_id>/", ToggleFavoriteView.as_view(), name="toggle_favorite"),
 ]

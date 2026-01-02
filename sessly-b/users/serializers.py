@@ -4,7 +4,9 @@ from django.contrib.auth.password_validation import validate_password
 from django.db import transaction
 from rest_framework import serializers
 
+from .models import Favorite
 from .models import EmailVerification
+from businesses.models import Business
 from .services import create_email_verification, send_verification_email
 
 User = get_user_model()
@@ -226,3 +228,15 @@ class ChangePasswordSerializer(serializers.Serializer):
         user.set_password(new_password)
         user.save()
         return user
+
+class BusinessPreviewSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Business
+        fields = ['id', 'name']
+
+class FavoriteSerializer(serializers.ModelSerializer):
+    business = BusinessPreviewSerializer(read_only=True)
+
+    class Meta:
+        model = Favorite
+        fields = ['id', 'business', 'created_at']

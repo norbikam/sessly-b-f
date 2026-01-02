@@ -1,20 +1,25 @@
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.shortcuts import get_object_or_404
+from rest_framework import serializers
 from rest_framework import generics, status
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.generics import ListApiView
 from rest_framework.views import APIView
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView
-
+from .models import Favorite
+from businesses.models import Business
 from .serializers import (
     ChangePasswordSerializer,
     RegisterSerializer,
     ResendVerificationEmailSerializer,
     UserSerializer,
     VerifyEmailSerializer,
+    FavoriteSerializer,
 )
 
 User = get_user_model()
@@ -130,8 +135,30 @@ class LogoutView(APIView):
             return Response({"detail": "Nie udalo sie uniewaznic tokenu"}, status=status.HTTP_400_BAD_REQUEST)
 
         return Response(status=status.HTTP_205_RESET_CONTENT)
+    
+class ToggleFavoriteView(APIView):
+    permission_classes = (IsAuthenticated,)
 
+    def post(self, request, business_id):
+        business = get_object_or_404(Business, id=business_id)
 
-def login_view(request, *args, **kwargs):
-    print("📥 LOGIN RAW data:", getattr(request, 'data', None) or getattr(request, 'POST', None))
-    # dalsza obsługa (autoryzacja)
+        favorite_query = Favorite.objects.filter(user=request.user, business=business)
+
+        if favorite_query.exists():
+            favorite_query.delete()
+            return Response(
+                {"detail": "Usunięto z ulubionych", "is_favorite": False}
+            )
+        else:
+            Favorite.objects.create(user=request.user, business=business)
+            return Response(
+                {"details": "Dodano do ulubionych", "is_favorite": True},
+                status=status.HTTP_201_CREATED
+            )
+        
+class UserFavoritesView(ListApiView):
+    permission_classes = (IsAuthenticated,)
+    serializer_class = FavoriteSerializer
+
+    def get_queryset(self):
+        return Favorite.objects.filter(user=self.request.user).select_related('business')
