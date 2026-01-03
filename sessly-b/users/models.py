@@ -1,6 +1,34 @@
 from django.conf import settings
 from django.db import models
 from django.utils import timezone
+from django.contrib.auth.models import AbstractUser
+
+
+class User(AbstractUser):
+    email = models.EmailField(unique=True)
+    business = models.OneToOneField(
+        "businesses.Business",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="owner",
+    )
+
+    class Role(models.TextChoices):
+        CUSTOMER = "customer", "Klient"
+        BUSINESS_OWNER = "business_owner", "Właściciel firmy"
+        ADMIN = "admin", "Admin"
+        STAFF = "staff", "Pracownik"
+
+    role = models.CharField(
+        max_length=20,
+        choices=Role.choices,
+        default=Role.CUSTOMER,
+    )
+
+    favorite_businesses = models.ManyToManyField(
+        "businesses.Business", related_name="favorited_by", blank=True
+    )
 
 
 class EmailVerification(models.Model):
@@ -35,24 +63,3 @@ class EmailVerification(models.Model):
 
     def __str__(self) -> str:
         return f"{self.user} - {self.code}"
-    
-class Favorite(models.Model):
-    user = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.CASCADE,
-        related_name='favorites'
-    )
-    
-    businesses = models.ForeignKey(
-        'businesses.Business',
-
-        on_delete=models.CASCADE,
-        related_name='favorited_by'
-    )
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        unique_together = ('user', 'businesses')
-    
-    def __str__(self):
-        return f"{self.user} polubił {self.businesses}"

@@ -20,6 +20,14 @@ from django.core.exceptions import ImproperlyConfigured
 # Build paths inside the project like this: BASE_DIR / "subdir".
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+# Initialize Sentry for error tracking (if configured)
+try:
+    from backend.sentry_config import init_sentry
+    # Note: Sentry will be initialized after environment is loaded
+except ImportError:
+    pass
+BASE_DIR = Path(__file__).resolve().parent.parent
+
 
 def get_env(name: str, default: Optional[str] = None, *, required: bool = False) -> Optional[str]:
     value = os.getenv(name, default)
@@ -38,13 +46,21 @@ def get_list_env(name: str, default: str = "") -> List[str]:
     return [item.strip() for item in raw.split(",") if item.strip()]
 
 
-SECRET_KEY = get_env(
-    "DJANGO_SECRET_KEY",
-    default="django-insecure-*&gpg)0!mwj9sm203j=nk7l#ej%gt*im(%3)rng-vs1-21*swn",
-)
-
-DEBUG = get_bool_env("DJANGO_DEBUG", "True")
+# Production-safe defaults
 ENVIRONMENT = get_env("DJANGO_ENV", "development")
+IS_PRODUCTION = ENVIRONMENT == "production"
+
+# SECRET_KEY is required in production
+if IS_PRODUCTION:
+    SECRET_KEY = get_env("DJANGO_SECRET_KEY", required=True)
+else:
+    SECRET_KEY = get_env(
+        "DJANGO_SECRET_KEY",
+        default="django-insecure-*&gpg)0!mwj9sm203j=nk7l#ej%gt*im(%3)rng-vs1-21*swn",
+    )
+
+# DEBUG should be False in production
+DEBUG = get_bool_env("DJANGO_DEBUG", "False" if IS_PRODUCTION else "True")
 
 _raw_allowed = os.getenv('DJANGO_ALLOWED_HOSTS', '')
 if _raw_allowed:
@@ -109,6 +125,7 @@ TEMPLATES = [
 WSGI_APPLICATION = "backend.wsgi.application"
 ASGI_APPLICATION = "backend.asgi.application"
 
+AUTH_USER_MODEL = "users.User"
 
 DATABASES = {
     "default": {
@@ -132,6 +149,29 @@ if database_url:
     DATABASES["default"]["ENGINE"] = DATABASES["default"].get("ENGINE", "django.db.backends.postgresql")
 
 DATABASES["default"]["ATOMIC_REQUESTS"] = True
+
+
+# Cache Configuration (for rate limiting and performance)
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        'LOCATION': 'unique-snowflake',
+    }
+}
+
+# In production, use Redis for better performance
+# Uncomment and configure when Redis is available:
+# REDIS_URL = get_env("REDIS_URL")
+# if REDIS_URL:
+#     CACHES = {
+#         'default': {
+#             'BACKEND': 'django_redis.cache.RedisCache',
+#             'LOCATION': REDIS_URL,
+#             'OPTIONS': {
+#                 'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+#             }
+#         }
+#     }
 
 
 AUTH_PASSWORD_VALIDATORS = [
@@ -183,6 +223,9 @@ REST_FRAMEWORK = {
     "DEFAULT_RENDERER_CLASSES": [
         "rest_framework.renderers.JSONRenderer",
     ],
+    "EXCEPTION_HANDLER": "backend.exceptions.custom_exception_handler",
+    "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
+    "PAGE_SIZE": 20,
 }
 
 if DEBUG:
@@ -268,27 +311,16 @@ GOOGLE_SERVICE_ACCOUNT_INFO = get_env("GOOGLE_SERVICE_ACCOUNT_INFO")
 GOOGLE_DEFAULT_CALENDAR_ID = get_env("GOOGLE_DEFAULT_CALENDAR_ID")
 
 
-LOGGING = {
-    "version": 1,
-    "disable_existing_loggers": False,
-    "formatters": {
-        "verbose": {
-            "format": "[{levelname}] {asctime} {name}: {message}",
-            "style": "{",
-        },
-        "simple": {
-            "format": "[{levelname}] {message}",
-            "style": "{",
-        },
-    },
-    "handlers": {
-        "console": {
-            "class": "logging.StreamHandler",
-            "formatter": "verbose" if not DEBUG else "simple",
-        },
-    },
-    "root": {
-        "handlers": ["console"],
-        "level": "INFO" if not DEBUG else "DEBUG",
-    },
-}
+# Logging Configuration
+from backend.logging_config import get_logging_config
+
+LOGGING = get_logging_config(debug=DEBUG, environment=ENVIRONMENT)
+
+
+# Sentry Error Tracking
+if IS_PRODUCTION or get_env("SENTRY_DSN"):
+    try:
+        from backend.sentry_config import init_sentry
+        init_sentry(environment=ENVIRONMENT, debug=DEBUG)
+    except Exception as e:
+        print(f"⚠️  Failed to initialize Sentry: {e}")

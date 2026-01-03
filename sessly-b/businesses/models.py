@@ -18,19 +18,26 @@ class Business(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=255)
     slug = models.SlugField(unique=True)
-    category = models.CharField(max_length=32, choices=Category.choices, default=Category.OTHER)
+    category = models.CharField(
+        max_length=32, choices=Category.choices, default=Category.OTHER
+    )
     description = models.TextField(blank=True)
     email = models.EmailField(blank=True)
     phone_number = models.CharField(max_length=32, blank=True)
     website_url = models.URLField(blank=True)
+    nip = models.CharField(max_length=13, blank=True, help_text="Numer Identyfikacji Podatkowej (NIP)")
     timezone = models.CharField(max_length=64, default="Europe/Warsaw")
     address_line1 = models.CharField(max_length=255)
     address_line2 = models.CharField(max_length=255, blank=True)
     city = models.CharField(max_length=128)
     postal_code = models.CharField(max_length=20)
     country = models.CharField(max_length=64, default="Polska")
-    latitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
-    longitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    latitude = models.DecimalField(
+        max_digits=9, decimal_places=6, null=True, blank=True
+    )
+    longitude = models.DecimalField(
+        max_digits=9, decimal_places=6, null=True, blank=True
+    )
     google_calendar_id = models.CharField(max_length=255, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -40,6 +47,28 @@ class Business(models.Model):
 
     def __str__(self) -> str:  # pragma: no cover - repr
         return self.name
+
+
+class BusinessStaff(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    business = models.ForeignKey(
+        Business, on_delete=models.CASCADE, related_name="staff_members"
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="business_staff_positions",
+    )
+    is_manager = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ("business", "user")
+        ordering = ("user__username",)
+
+    def __str__(self) -> str:  # pragma: no cover - repr
+        return f"{self.user.username} - {self.business.name}"
 
 
 class BusinessOpeningHour(models.Model):
@@ -53,7 +82,9 @@ class BusinessOpeningHour(models.Model):
         SUNDAY = 6, "Niedziela"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    business = models.ForeignKey(Business, on_delete=models.CASCADE, related_name="opening_hours")
+    business = models.ForeignKey(
+        Business, on_delete=models.CASCADE, related_name="opening_hours"
+    )
     day_of_week = models.PositiveSmallIntegerField(choices=Weekday.choices)
     is_closed = models.BooleanField(default=False)
     open_time = models.TimeField(blank=True, null=True)
@@ -68,7 +99,9 @@ class BusinessOpeningHour(models.Model):
             return
 
         if self.open_time is None or self.close_time is None:
-            raise ValidationError("Musisz podac godziny otwarcia i zamkniecia lub oznaczyc dzien jako nieczynny.")
+            raise ValidationError(
+                "Musisz podac godziny otwarcia i zamkniecia lub oznaczyc dzien jako nieczynny."
+            )
 
         if self.open_time >= self.close_time:
             raise ValidationError("Godzina zamkniecia musi byc po godzinie otwarcia.")
@@ -79,12 +112,16 @@ class BusinessOpeningHour(models.Model):
 
 class BusinessService(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    business = models.ForeignKey(Business, on_delete=models.CASCADE, related_name="services")
+    business = models.ForeignKey(
+        Business, on_delete=models.CASCADE, related_name="services"
+    )
     name = models.CharField(max_length=128)
     description = models.TextField(blank=True)
     duration_minutes = models.PositiveIntegerField()
     buffer_minutes = models.PositiveIntegerField(default=0)
-    price_amount = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True)
+    price_amount = models.DecimalField(
+        max_digits=8, decimal_places=2, null=True, blank=True
+    )
     price_currency = models.CharField(max_length=3, default="PLN")
     is_active = models.BooleanField(default=True)
     color = models.CharField(max_length=16, blank=True)
@@ -104,19 +141,32 @@ class BusinessService(models.Model):
 
 class Appointment(models.Model):
     class Status(models.TextChoices):
-        PENDING = "pending", "Oczekujace"
+        PENDING = "pending", "Oczekujące"
         CONFIRMED = "confirmed", "Potwierdzone"
         CANCELLED = "cancelled", "Anulowane"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    business = models.ForeignKey(Business, on_delete=models.CASCADE, related_name="appointments")
-    service = models.ForeignKey(BusinessService, on_delete=models.CASCADE, related_name="appointments")
+    business = models.ForeignKey(
+        Business, on_delete=models.CASCADE, related_name="appointments"
+    )
+    staff = models.ForeignKey(
+        BusinessStaff,
+        on_delete=models.CASCADE,
+        related_name="appointments",
+        null=True,
+        blank=True,
+    )
+    service = models.ForeignKey(
+        BusinessService, on_delete=models.CASCADE, related_name="appointments"
+    )
     customer = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
         related_name="appointments",
     )
-    status = models.CharField(max_length=16, choices=Status.choices, default=Status.CONFIRMED)
+    status = models.CharField(
+        max_length=16, choices=Status.choices, default=Status.PENDING
+    )
     start = models.DateTimeField()
     end = models.DateTimeField()
     buffer_minutes = models.PositiveIntegerField(default=0)
@@ -124,6 +174,7 @@ class Appointment(models.Model):
     google_event_id = models.CharField(max_length=255, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    confirmed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ("-start",)
@@ -142,4 +193,3 @@ class Appointment(models.Model):
         expected_end = self.start + timedelta(minutes=self.service.duration_minutes)
         if expected_end != self.end:
             raise ValidationError("Czas zakonczenia musi odpowiadac dlugosci uslugi.")
-

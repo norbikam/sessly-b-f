@@ -4,9 +4,15 @@ from django.contrib.auth.password_validation import validate_password
 from django.db import transaction
 from rest_framework import serializers
 
-from .models import Favorite
+from backend.exceptions import (
+    EmailAlreadyExistsError,
+    InvalidVerificationCodeError,
+    VerificationCodeExpiredError,
+    WrongPasswordError,
+)
 from .models import EmailVerification
-from businesses.models import Business
+from businesses.serializers import BusinessListSerializer, BusinessServiceSerializer
+from businesses.models import Appointment, Business
 from .services import create_email_verification, send_verification_email
 
 User = get_user_model()
@@ -18,12 +24,23 @@ logger = logging.getLogger(__name__)
 
 class RegisterSerializer(serializers.ModelSerializer):
     email = serializers.EmailField(required=True)
-    password = serializers.CharField(write_only=True, required=True, style={"input_type": "password"})
-    password2 = serializers.CharField(write_only=True, required=True, style={"input_type": "password"})
+    password = serializers.CharField(
+        write_only=True, required=True, style={"input_type": "password"}
+    )
+    password2 = serializers.CharField(
+        write_only=True, required=True, style={"input_type": "password"}
+    )
 
     class Meta:
         model = User
-        fields = ("username", "email", "first_name", "last_name", "password", "password2")
+        fields = (
+            "username",
+            "email",
+            "first_name",
+            "last_name",
+            "password",
+            "password2",
+        )
 
     def to_internal_value(self, data):
         logger.info(f"📥 RAW data received: {data}")
@@ -33,7 +50,9 @@ class RegisterSerializer(serializers.ModelSerializer):
 
     def validate_email(self, value: str) -> str:
         if User.objects.filter(email__iexact=value).exists():
-            raise serializers.ValidationError("Uzytkownik z takim adresem email juz istnieje")
+            raise serializers.ValidationError(
+                "Uzytkownik z takim adresem email juz istnieje"
+            )
         return value
 
     def validate(self, attrs):
@@ -73,12 +92,23 @@ class RegisterSerializer(serializers.ModelSerializer):
 
 class UserRegisterSerializer(serializers.ModelSerializer):
     email = serializers.EmailField(required=True)
-    password = serializers.CharField(write_only=True, required=True, style={"input_type": "password"})
-    password2 = serializers.CharField(write_only=True, required=True, style={"input_type": "password"})
+    password = serializers.CharField(
+        write_only=True, required=True, style={"input_type": "password"}
+    )
+    password2 = serializers.CharField(
+        write_only=True, required=True, style={"input_type": "password"}
+    )
 
     class Meta:
         model = User
-        fields = ("username", "email", "first_name", "last_name", "password", "password2")
+        fields = (
+            "username",
+            "email",
+            "first_name",
+            "last_name",
+            "password",
+            "password2",
+        )
 
     def to_internal_value(self, data):
         logger.info(f"📥 RAW data received: {data}")
@@ -88,7 +118,7 @@ class UserRegisterSerializer(serializers.ModelSerializer):
 
     def validate_email(self, value: str) -> str:
         if User.objects.filter(email__iexact=value).exists():
-            raise serializers.ValidationError("Uzytkownik z takim adresem email juz istnieje")
+            raise EmailAlreadyExistsError()
         return value
 
     def validate(self, attrs):
@@ -107,14 +137,14 @@ class UserRegisterSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         # ensure the newly created user is active immediately (bypass email-activation requirement)
         # set default so create_user receives is_active=True, and force-save after create to be safe
-        validated_data.setdefault('is_active', True)
+        validated_data.setdefault("is_active", True)
 
         user = User.objects.create_user(**validated_data)
 
         # in case create_user ignores is_active, ensure it's set and persisted
         if not user.is_active:
             user.is_active = True
-            user.save(update_fields=['is_active'])
+            user.save(update_fields=["is_active"])
 
         return user
 
@@ -136,7 +166,9 @@ class VerifyEmailSerializer(serializers.Serializer):
         try:
             user = User.objects.get(email__iexact=email)
         except User.DoesNotExist as exc:  # pragma: no cover - security measure
-            raise serializers.ValidationError({"email": "Nie znaleziono uzytkownika z tym adresem"}) from exc
+            raise serializers.ValidationError(
+                {"email": "Nie znaleziono uzytkownika z tym adresem"}
+            ) from exc
 
         if user.is_active:
             self.fail("already_confirmed")
@@ -148,13 +180,13 @@ class VerifyEmailSerializer(serializers.Serializer):
             .first()
         )
         if not verification:
-            self.fail("invalid_code")
+            raise InvalidVerificationCodeError()
 
         if verification.has_expired():
-            self.fail("code_expired")
+            raise VerificationCodeExpiredError()
 
         if verification.is_used:
-            self.fail("invalid_code")
+            raise InvalidVerificationCodeError()
 
         attrs["user"] = user
         attrs["verification"] = verification
@@ -204,19 +236,27 @@ class UserSerializer(serializers.ModelSerializer):
 
 
 class ChangePasswordSerializer(serializers.Serializer):
-    old_password = serializers.CharField(required=True, write_only=True, style={"input_type": "password"})
-    new_password = serializers.CharField(required=True, write_only=True, style={"input_type": "password"})
-    new_password2 = serializers.CharField(required=True, write_only=True, style={"input_type": "password"})
+    old_password = serializers.CharField(
+        required=True, write_only=True, style={"input_type": "password"}
+    )
+    new_password = serializers.CharField(
+        required=True, write_only=True, style={"input_type": "password"}
+    )
+    new_password2 = serializers.CharField(
+        required=True, write_only=True, style={"input_type": "password"}
+    )
 
     def validate_old_password(self, value):
         user = self.context.get("request").user if self.context.get("request") else None
         if not user or not user.check_password(value):
-            raise serializers.ValidationError("Niepoprawne haslo")
+            raise WrongPasswordError()
         return value
 
     def validate(self, attrs):
         if attrs["new_password"] != attrs["new_password2"]:
-            raise serializers.ValidationError({"new_password": "Hasla nie sa identyczne"})
+            raise serializers.ValidationError(
+                {"new_password": "Hasla nie sa identyczne"}
+            )
 
         user = self.context.get("request").user if self.context.get("request") else None
         validate_password(attrs["new_password"], user=user)
@@ -229,14 +269,27 @@ class ChangePasswordSerializer(serializers.Serializer):
         user.save()
         return user
 
+
 class BusinessPreviewSerializer(serializers.ModelSerializer):
     class Meta:
         model = Business
-        fields = ['id', 'name']
+        fields = ["id", "name"]
 
-class FavoriteSerializer(serializers.ModelSerializer):
-    business = BusinessPreviewSerializer(read_only=True)
+
+class AppointmentSerializer(serializers.ModelSerializer):
+    service = BusinessServiceSerializer(read_only=True)
+    business = serializers.SlugRelatedField(slug_field="slug", read_only=True)
 
     class Meta:
-        model = Favorite
-        fields = ['id', 'business', 'created_at']
+        model = Appointment
+        fields = (
+            "id",
+            "business",
+            "service",
+            "status",
+            "start",
+            "end",
+            "notes",
+            "google_event_id",
+        )
+        read_only_fields = fields
